@@ -1,0 +1,672 @@
+import { defineStore } from 'pinia'
+import { unlockComicChapter,getUnlockedComicChapters, unlockComicWhole } from '@/api/unlock.api'
+
+import {
+  fetchComicCategories,
+  addComicCategory,
+  updateComicCategory,
+  deleteComicCategory,
+  batchDeleteComicCategory,
+  toggleComicCategoryStatus,
+  batchSetComicCategoryStatus,
+  fetchComicChapters,
+  fetchChapterImages,
+  fetchComicDetail,
+  fetchComicList,
+  fetchAllRecommendGroupsWithComics,
+  fetchRecommendGroups,
+  addRecommendGroup,
+  updateRecommendGroup,
+  deleteRecommendGroup,
+  sortRecommendGroups,
+  fetchRecommendGroupComics,
+  saveRecommendGroupComics,
+  fetchUnGroupedComics,
+  fetchAllComics,
+  fetchMainRecommendCategories,
+  fetchChildRecommendCategories,
+  fetchSubCategoryComics,
+  fetchComicTagList,
+} from '@/api/comicCategory.api'
+
+export interface ComicItem {
+  id: number | string
+  name: string
+  cover?: string
+  author?: string
+  coin?: number
+  is_vip?: number
+  [key: string]: any
+}
+export interface SubCategoryComicsPage {
+  list: ComicItem[]
+  total: number
+  page: number
+  pageSize: number
+  loading: boolean
+  finished: boolean
+}
+export interface CategoryItem {
+  id: number
+  name: string
+  parent_id: number
+  sort: number
+  status: number
+  remark?: string
+  comic_count?: number
+  comics?: ComicItem[]
+}
+export interface RecommendGroupItem {
+  id: number | string
+  name: string
+  sort: number
+  comic_count?: number
+  is_protected?: number
+  layout_type?: string
+  icon?: string
+  [key: string]: any
+}
+// 推荐分组分页结构
+export interface RecommendGroupComicsPage {
+  list: ComicItem[]
+  total: number
+  page: number
+  pageSize: number
+  loading: boolean
+  finished: boolean
+}
+
+export interface CategoryState {
+  mainCategories: CategoryItem[]
+  subCategoriesMap: Record<number, CategoryItem[]>
+  subCategoryComicsMap: Record<number, SubCategoryComicsPage>
+  loading: boolean
+  comicDetail: any
+  comicDetailCache: Record<number, any>
+  chapterList: any[]
+  chapterListCache: Record<number, any[]>
+  previewChapterList: any[]
+  previewChapterCache: Record<number, any[]>
+  guessLikeList: ComicItem[]
+  chapterImagesCache: Record<number, string[]>
+  unlockedChaptersMap: Record<number, string[]>
+   comicTags: any[];             // 标签列表
+  comicTagsTotal: number;       // 标签总数
+
+  // 推荐分组相关
+  recommendGroups: RecommendGroupItem[]
+  recommendGroupsTotal: number
+  recommendGroupComicsMap: Record<number, RecommendGroupComicsPage>
+  unGroupedComics: ComicItem[]
+  allRecommendGroups: RecommendGroupItem[]
+  comicLibraryCache: Record<string, {
+    list: ComicItem[],
+    total: number,
+    page: number,
+    pageSize: number,
+    noMore: boolean
+  }>
+}
+
+export const useComicCategoryStore = defineStore('comicCategory', {
+  state: (): CategoryState => ({
+    mainCategories: [],
+    subCategoriesMap: {},
+    loading: false,
+    comicDetail: {},
+    comicDetailCache: {},
+    chapterList: [],
+    chapterListCache: {},
+    previewChapterList: [],
+    previewChapterCache: {},
+    guessLikeList: [],
+    chapterImagesCache: {},
+    subCategoryComicsMap: {},
+    unlockedChaptersMap: {} as Record<string, string[]>,
+    comicTags: [],
+    comicTagsTotal: 0,
+    comicLibraryCache: {},
+
+
+    // 推荐分组相关
+    recommendGroups: [],
+    recommendGroupsTotal: 0,
+    recommendGroupComicsMap: {},
+    unGroupedComics: [],
+    allRecommendGroups: [],
+  }),
+
+  actions: {
+    async loadMainCategories(params?: { keyword?: string; status?: number }) {
+      this.loading = true
+      try {
+        const data = await fetchComicCategories({ onlyMain: 1, ...params })
+        this.mainCategories = data.mainCategories || []
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadCategories(params?: { keyword?: string; status?: number }) {
+      this.loading = true
+      try {
+        const data = await fetchComicCategories(params)
+        this.mainCategories = data.mainCategories || []
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadSubCategoriesWithComics(parentId: number, limit = 9) {
+      this.loading = true
+      try {
+        const data = await fetchComicCategories({ parentId, limit })
+        this.subCategoriesMap[parentId] = data.subCategories || []
+      } finally {
+        this.loading = false
+      }
+    },
+    getSubCategories(parentId: number): CategoryItem[] {
+      return this.subCategoriesMap[parentId] || []
+    },
+    async loadComicDetail(manga_id: number | string) {
+      manga_id = Number(manga_id)
+      if (this.comicDetailCache[manga_id]) {
+        this.comicDetail = { ...this.comicDetailCache[manga_id] }
+        return this.comicDetail
+      }
+      this.loading = true
+      try {
+        const raw = await fetchComicDetail(manga_id)
+        this.comicDetail = { ...raw }
+        this.comicDetailCache[manga_id] = { ...raw }
+        return this.comicDetail
+      } catch (e) {
+        this.comicDetail = {}
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadAllChapters(manga_id: number | string) {
+      manga_id = Number(manga_id)
+      if (this.chapterListCache[manga_id]) {
+        this.chapterList = [...this.chapterListCache[manga_id]]
+        return { list: this.chapterList }
+      }
+      this.loading = true
+      try {
+        const res = await fetchComicChapters({ manga_id, page: 1, pageSize: 999 })
+        this.chapterList = res.list || []
+        this.chapterListCache[manga_id] = [...this.chapterList]
+        return res
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadPreviewChapters(manga_id: number | string, count = 3) {
+      manga_id = Number(manga_id)
+      if (this.previewChapterCache[manga_id]) {
+        this.previewChapterList = [...this.previewChapterCache[manga_id]]
+        return { list: this.previewChapterList }
+      }
+      this.loading = true
+      try {
+        const res = await fetchComicChapters({ manga_id, page: 1, pageSize: count })
+        this.previewChapterList = res.list || []
+        this.previewChapterCache[manga_id] = [...this.previewChapterList]
+        return res
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadComicChapters(manga_id: number, page = 1, pageSize = 10) {
+      manga_id = Number(manga_id)
+      this.loading = true
+      try {
+        const res = await fetchComicChapters({ manga_id, page, pageSize })
+        this.chapterList = res.list || []
+        return res
+      } catch (err) {
+        this.chapterList = []
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadChapterList(manga_id: number | string) {
+      return this.loadAllChapters(Number(manga_id))
+    },
+    async loadChapterImages(chapterId: number) {
+      if (this.chapterImagesCache[chapterId]) {
+        return this.chapterImagesCache[chapterId]
+      }
+      this.loading = true
+      try {
+        const res = await fetchChapterImages(chapterId)
+        this.chapterImagesCache[chapterId] = res.images || []
+        return this.chapterImagesCache[chapterId]
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadGuessLikeList(categoryId: number, excludeId: number | string, limit = 6) {
+      this.loading = true
+      try {
+        const res = await fetchComicList({
+          category_id: categoryId,
+          page: 1,
+          page_size: limit * 2,
+          status: 1,
+        })
+        let list = (res.list || []).filter(item => item.id != excludeId)
+        if (list.length > limit) {
+          list = list.sort(() => Math.random() - 0.5).slice(0, limit)
+        }
+        this.guessLikeList = list
+        return list
+      } finally {
+        this.loading = false
+      }
+    },
+    /**
+     * 解锁漫画章节（金币扣除）
+     * @param chapterId 章节ID
+     */
+    async buyComicChapter(chapterId: number) {
+      try {
+        const res = await unlockComicChapter({ chapter_id: chapterId })
+        // 解锁成功后建议自动刷新本章节内容（如果你页面有用到）
+        // 比如刷新章节图片、金币余额等
+        // await this.loadChapterImages(chapterId)
+        // await useUserStore().loadUserInfo() // 如果有金币相关页面
+        return res
+      } catch (e) {
+        // 可以加弹窗、toast 提示错误
+        throw e
+      }
+    },
+/**
+   * 拉取某本漫画下，用户已解锁的所有章节ID
+   */
+  async loadUnlockedChapters(comicId: number | string) {
+  const cid = String(comicId)
+  try {
+    const arr = await getUnlockedComicChapters({ comic_id: cid })
+    if (Array.isArray(arr)) {
+      this.unlockedChaptersMap[cid] = arr.map(String)
+      console.log('【写入unlockedChaptersMap】', cid, this.unlockedChaptersMap[cid])
+      return this.unlockedChaptersMap[cid]
+    } else {
+      this.unlockedChaptersMap[cid] = []
+      console.log('【接口无解锁章节，清空】', cid)
+      return []
+    }
+  } catch (e) {
+    this.unlockedChaptersMap[cid] = []
+    console.log('【catch异常清空】', cid, e)
+    return []
+  }
+},
+    /**
+     * 拉取漫画标签列表
+     * @param params 支持 keyword/status/page/page_size
+     */
+    async loadComicTags(params = {}) {
+      this.loading = true
+      try {
+        const res = await fetchComicTagList(params)
+        this.comicTags = res.list || []
+        this.comicTagsTotal = res.total || 0
+        return res
+      } finally {
+        this.loading = false
+      }
+    },
+
+
+addUnlockedChapter(comicId: number | string, chapterId: number | string) {
+  const cid = String(comicId)
+  if (!this.unlockedChaptersMap[cid]) this.unlockedChaptersMap[cid] = []
+  const chId = String(chapterId)
+  if (!this.unlockedChaptersMap[cid].includes(chId)) {
+    this.unlockedChaptersMap[cid].push(chId)
+  }
+},
+
+    /**
+     * 推荐页一次性批量拉取所有推荐分组及分组下漫画
+     */
+    async loadAllRecommendGroupsWithComics(force = false) {
+      if (!force && this.allRecommendGroups.length > 0) {
+        return this.allRecommendGroups
+      }
+      this.loading = true
+      try {
+        const res = await fetchAllRecommendGroupsWithComics()
+        this.allRecommendGroups = res.groups || []
+        return this.allRecommendGroups
+      } finally {
+        this.loading = false
+      }
+    },
+    /**
+     * 分页拉取子分类下的漫画（“更多”页专用）
+     * @param subCategoryId 子分类id
+     * @param opt.page 页码，默认1
+     * @param opt.pageSize 每页多少条，默认15
+     * @param opt.append 是否追加
+     */
+    // 你的 store 里更新 loadSubCategoryComics 方法来正确处理分页缓存
+async loadSubCategoryComics(
+  subCategoryId: number,
+  {
+    page = 1,
+    pageSize = 15,
+    append = false,
+  }: { page?: number; pageSize?: number; append?: boolean } = {}
+) {
+  // 无缓存逻辑：每次都初始化
+  if (!this.subCategoryComicsMap[subCategoryId]) {
+    this.subCategoryComicsMap[subCategoryId] = {
+      list: [],
+      total: 0,
+      page: 0,
+      pageSize,
+      loading: false,
+      finished: false,
+    }
+  }
+
+  const catObj = this.subCategoryComicsMap[subCategoryId]
+  catObj.loading = true
+
+  try {
+    const res = await fetchSubCategoryComics({ subCategoryId, page, pageSize })
+
+    catObj.list = append ? catObj.list.concat(res.list || []) : (res.list || [])
+    catObj.total = res.total || 0
+    catObj.page = page
+    catObj.pageSize = pageSize
+    catObj.finished = catObj.list.length >= catObj.total
+
+    return catObj
+  } finally {
+    catObj.loading = false
+  }
+},
+
+// 清理缓存时，添加更多清理逻辑
+clearCategoryCache(subCategoryId: number) {
+  if (this.subCategoryComicsMap[subCategoryId]) {
+    this.subCategoryComicsMap[subCategoryId] = {
+      list: [],
+      total: 0,
+      page: 0,
+      pageSize: 15,
+      loading: false,
+      finished: false,
+    }
+  }
+},
+
+ /**
+     * 整部解锁漫画（打折批量解锁）
+     */
+    async buyComicWhole(comicId: number | string) {
+      const cid = String(comicId)
+      try {
+        const res = await unlockComicWhole({ comic_id: Number(comicId) })
+        // 解锁成功后，本地更新 unlockedChaptersMap，直接全部章节标记为已解锁
+        if (res && res.code === 0 && Array.isArray(this.chapterListCache[cid])) {
+          const allChapterIds = this.chapterListCache[cid].map(chap => String(chap.id))
+          this.unlockedChaptersMap[cid] = allChapterIds
+        }
+        return res
+      } catch (e) {
+        throw e
+      }
+    },
+  
+    /**
+     * 子分类“更多”下拉加载更多（自动翻页，追加）
+     */
+    async loadMoreSubCategoryComics(subCategoryId: number) {
+      const catObj = this.subCategoryComicsMap[subCategoryId]
+      if (!catObj || catObj.finished || catObj.loading) return catObj
+      const nextPage = catObj.page + 1
+      return this.loadSubCategoryComics(subCategoryId, {
+        page: nextPage,
+        pageSize: catObj.pageSize,
+        append: true,
+      })
+    },
+
+    async addCategory(payload: {
+      name: string
+      parent_id: number
+      sort?: number
+      status?: number
+      remark?: string
+    }) {
+      return addComicCategory(payload)
+    },
+    async updateCategory(payload: {
+      id: number
+      name: string
+      parent_id: number
+      sort?: number
+      status?: number
+      remark?: string
+    }) {
+      return updateComicCategory(payload)
+    },
+    async deleteCategory(id: number) {
+      return deleteComicCategory({ id })
+    },
+    async batchDelete(ids: number[]) {
+      return batchDeleteComicCategory({ ids })
+    },
+    async toggleStatus(id: number) {
+      return toggleComicCategoryStatus({ id })
+    },
+    async batchSetStatus(ids: number[], status: number) {
+      return batchSetComicCategoryStatus({ ids, status })
+    },
+
+    // --- 推荐分组相关 ---
+    async loadRecommendGroups(params = {}) {
+      this.loading = true
+      try {
+        const res = await fetchRecommendGroups(params)
+        this.recommendGroups = res.list || []
+        this.recommendGroupsTotal = res.total || 0
+        return res
+      } finally {
+        this.loading = false
+      }
+    },
+    async addRecommendGroup(payload) {
+      return addRecommendGroup(payload)
+    },
+    async updateRecommendGroup(id, payload) {
+      return updateRecommendGroup(id, payload)
+    },
+    async deleteRecommendGroup(id) {
+      return deleteRecommendGroup(id)
+    },
+    async sortRecommendGroups(data) {
+      return sortRecommendGroups(data)
+    },
+
+    // ------------- 分组下漫画分页加载支持 ---------------
+    /**
+     * 推荐分组下漫画分页加载（首次/更多都用这个）
+     * @param groupId 推荐分组ID
+     * @param opt.page 页码，默认1
+     * @param opt.pageSize 每页多少条，默认15
+     * @param opt.append 是否追加到已加载列表
+     */
+    async loadRecommendGroupComics(
+  groupId: number,
+  { page = 1, pageSize = 15, append = false } = {}
+) {
+  // 缓存每个分组的数据
+  const cacheKey = `group_${groupId}_page_${page}`
+
+  // 检查是否已经有缓存的数据
+  if (this.recommendGroupComicsMap[cacheKey]) {
+    // 如果有缓存，直接返回缓存的内容
+    return this.recommendGroupComicsMap[cacheKey]
+  }
+
+  const groupObj = {
+    list: [],
+    total: 0,
+    page: 0,
+    pageSize,
+    loading: false,
+    finished: false,
+  }
+
+  // 将加载状态设置为 true，防止重复加载
+  groupObj.loading = true
+  try {
+    // 请求接口获取数据
+    const res = await fetchRecommendGroupComics(groupId, { page, pageSize })
+
+    // 如果是追加数据，拼接到原数据，否则覆盖原数据
+    if (append) {
+      groupObj.list = groupObj.list.concat(res.list || [])
+    } else {
+      groupObj.list = res.list || []
+    }
+
+    // 更新缓存的数据
+    groupObj.total = res.total || 0
+    groupObj.page = page
+    groupObj.pageSize = pageSize
+    groupObj.finished = groupObj.list.length >= groupObj.total  // 判断是否加载完所有数据
+
+    // 将数据存入缓存
+    this.recommendGroupComicsMap[cacheKey] = groupObj
+
+    return groupObj
+  } finally {
+    groupObj.loading = false
+  }
+},
+
+/**
+ * 下拉加载更多（自动翻页，追加）
+ */
+async loadMoreRecommendGroupComics(groupId: number) {
+  const groupObj = this.recommendGroupComicsMap[`group_${groupId}_page_${groupId}`]
+
+  // 检查是否需要加载更多，避免重复请求
+  if (!groupObj || groupObj.finished || groupObj.loading) return groupObj
+
+  // 计算下一页页码
+  const nextPage = groupObj.page + 1
+
+  // 加载下一页数据并追加
+  return this.loadRecommendGroupComics(groupId, {
+    page: nextPage,
+    pageSize: groupObj.pageSize,
+    append: true,
+  })
+},
+
+    async saveRecommendGroupComics(groupId, comics) {
+      return saveRecommendGroupComics(groupId, comics)
+    },
+    async loadUnGroupedComics() {
+      this.loading = true
+      try {
+        const res = await fetchUnGroupedComics()
+        this.unGroupedComics = res.list || []
+        return this.unGroupedComics
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadAllComics(params) {
+      return fetchAllComics(params)
+    },
+    async loadMainRecommendCategories() {
+      return fetchMainRecommendCategories()
+    },
+    async loadChildRecommendCategories() {
+      return fetchChildRecommendCategories()
+    },
+async loadLibraryComicsWithCache(opt: {
+  categoryId: number,
+  tagId: number,
+  sort: string,
+  page: number,
+  pageSize?: number,
+  force?: boolean // 强制刷新
+}) {
+  const { categoryId, tagId, sort, page, pageSize = 15, force = false } = opt
+  const cacheKey = `${categoryId}_${tagId}_${sort}_${page}`
+  // 优先返回缓存
+  if (!force && this.comicLibraryCache[cacheKey]) {
+    return this.comicLibraryCache[cacheKey]
+  }
+  // 拉接口
+  const params: any = {
+    page,
+    pageSize,
+    sort,
+  }
+  if (categoryId && categoryId !== 0) params.category_id = categoryId
+  if (tagId && tagId !== 0) params.tag_id = tagId
+  const res = await fetchAllComics(params)
+  const data = {
+    list: res?.list || [],
+    total: res?.total || 0,
+    page,
+    pageSize,
+    noMore: (res?.list?.length || 0) < pageSize || (res?.list?.length || 0) + (page - 1) * pageSize >= res?.total
+  }
+  this.comicLibraryCache[cacheKey] = data
+  return data
+},
+clearComicLibraryCache() {
+  this.comicLibraryCache = {}
+},
+
+    clearCurrentState() {
+      this.comicDetail = {}
+      this.chapterList = []
+      this.previewChapterList = []
+    },
+    clearComicCache(mangaId?: number) {
+  if (mangaId) {
+    delete this.comicDetailCache[mangaId]
+    delete this.chapterListCache[mangaId]
+    delete this.previewChapterCache[mangaId]
+  } else {
+    this.comicDetailCache = {}
+    this.chapterListCache = {}
+    this.previewChapterCache = {}
+    this.chapterImagesCache = {}
+  }
+  this.comicDetail = {}
+  this.chapterList = []
+  this.previewChapterList = []
+  
+},
+clearRecommendGroupCache(groupId: number) {
+  if (this.recommendGroupComicsMap[groupId]) {
+    // 清理该分组的缓存
+    this.recommendGroupComicsMap[groupId] = {
+      list: [],
+      total: 0,
+      page: 0,
+      pageSize: 15,
+      loading: false,
+      finished: false,
+    }
+  }
+}
+
+  }
+  
+})

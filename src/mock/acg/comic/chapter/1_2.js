@@ -1,0 +1,18 @@
+// 文件路径: /mock/chapter/1_2.js
+
+export default {
+  images: [
+    'https://cdn.szqianyan.com/bookimage/1/2/3a15f42e-2af8-cb67-ecbe-36611790617a.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/4db454b3-1632-cc76-348f-1594c8eba5fe.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/7cc136fd-13d5-2227-83df-d63a71d5680c.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/7ce28e1d-acaf-ef28-40c6-12bec6c2a630.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/9d9242e6-1a1c-d7e4-1f19-a21f52360226.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/33b5fdd6-7e85-c187-6ffe-d19e05d4fd61.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/6101f045-d441-ca73-cba8-93a00e28b489.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/44565500-7483-c633-b3a6-544be7720a9d.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/e5eaab56-1801-f4e6-e9de-2d3b7f829b23.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/f98d228c-e5f1-46c3-0bb1-0636eef2264c.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/fd037ec5-cb13-41c3-c7bc-668fdf3c1470.jpg',
+    'https://cdn.szqianyan.com/bookimage/1/2/ff1d72b9-316e-d41d-74bc-125a3441d43b.jpg'
+  ]
+}

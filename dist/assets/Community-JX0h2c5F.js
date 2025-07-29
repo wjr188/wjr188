@@ -1,0 +1,1 @@
+import{T as t}from"./TabBar-BmLwAtYY.js";import{c as o,a,b as r,m}from"./index-CKjozqaQ.js";import"./_plugin-vue_export-helper-DlAUqK2U.js";const i={__name:"Community",setup(n){return(s,e)=>(a(),o("div",null,[e[0]||(e[0]=r("h2",null,"社区",-1)),e[1]||(e[1]=r("p",null,"这里是社区内容...",-1)),m(t)]))}};export{i as default};
