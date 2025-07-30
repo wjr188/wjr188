@@ -1,1 +1,0 @@
-const t=""+new URL("../icons/prev-chapter.svg",import.meta.url).href,r=""+new URL("../icons/next-chapter.svg",import.meta.url).href,s=""+new URL("../icons/catalog.svg",import.meta.url).href;export{t as _,r as a,s as b};
