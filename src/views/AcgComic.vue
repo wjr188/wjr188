@@ -2,41 +2,30 @@
   <div class="acg-comic-wrapper">
     <div class="content-container">
       <div v-for="module in allModules" :key="module.id" class="recommend-module">
-  <div class="module-title">
-   <div class="left-title">
-  <!-- 用 module.icon 字段自动渲染 -->
-  <img
-    v-if="module.icon"
-    :src="`/icons/${module.icon}`"
-    class="icon"
-    :alt="module.moduleTitle"
-    @error="e => (e.target.style.display='none')" 
-  />
-  {{ module.moduleTitle }}
-</div>
-
-    <div class="more-btn" @click="goMore(module)">
-      <span>更多</span>
-      <img src="/icons/more-arrow.svg" class="arrow-icon" />
-    </div>
-  </div>
-  <AcgSection
-    :layoutType="module.layoutType"
-    :data="module.items"
-    @item-click="goToDetail"
-  />
-</div>
-
-<!-- 判空逻辑修改： -->
-<div v-if="allModules.length === 0 && !isLoading" class="empty-data-message">
-  <p>该分类暂无漫画数据或数据加载失败...</p>
-</div>
-
+        <div class="module-title">
+          <div class="left-title">
+            <img v-if="module.icon" :src="`/icons/${module.icon}`" class="icon" :alt="module.moduleTitle" @error="e => (e.target.style.display='none')" />
+            {{ module.moduleTitle }}
+          </div>
+          <div class="more-btn" @click="goMore(module)">
+            <span>更多</span>
+            <img src="/icons/more-arrow.svg" class="arrow-icon" />
+          </div>
+        </div>
+        <AcgSection
+          :layoutType="module.layoutType"
+          :data="module.items"
+          @item-click="goToDetail"
+        />
+      </div>
+      <div v-if="allModules.length === 0 && !isLoading" class="empty-data-message">
+        <p>该分类暂无漫画数据或数据加载失败...</p>
+      </div>
       <div v-if="isLoading" class="loading-tip">
         <img src="/icons/loading.svg" alt="加载中..." class="custom-spinner" />
         <div class="loading-text">客官别走，妾身马上就好~</div>
       </div>
-      <div v-if="noMore && visibleList.length > 0" class="no-more-text">
+      <div v-if="noMore && allModules.length > 0" class="no-more-text">
         客官，妾身被你弄高潮了，扛不住了 ~
       </div>
       <div ref="sentinel" class="load-more-trigger"></div>
@@ -44,61 +33,67 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, computed, watch, onActivated, onDeactivated, nextTick, Ref } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, onActivated } from 'vue'
 import { useComicCategoryStore } from '@/store/comicCategoryStore'
 import AcgSection from '@/components/AcgSection.vue'
 import { useRouter } from 'vue-router'
-import { useLazyLoad } from '@/composables/useLazyLoad'
 
-interface ComicItem {
-  id: string | number;
-  [key: string]: any;
-}
-interface ComicModule {
-  id?: string | number;
-  moduleTitle: string;
-  layoutType: number;
-  items: ComicItem[];
-}
-interface Props {
+const props = defineProps<{
   categoryTitle: string
   activeTab: string
   activeSubCategory: string
-  scrollContainerRef: Ref<HTMLElement | null>
+  scrollContainerRef: any
   parentCategoryId: number
-}
-const props = defineProps<Props>()
+}>()
 const router = useRouter()
 const categoryStore = useComicCategoryStore()
 
-const mainCategory = computed(() =>
-  categoryStore.mainCategories.find(c => c.name === props.categoryTitle)
+const parentId = computed(() => props.parentCategoryId || 0)
+const subPage = computed(() =>
+  categoryStore.subCategoriesMap[parentId.value] || {
+    subCategories: [],
+    total: 0,
+    page: 0,
+    pageSize: 2,
+    loading: false,
+    noMore: false,
+  }
 )
-
-// ====== 关键修改点（subCategoriesMap用法）======
-const allModules = computed(() => {
-  if (!mainCategory.value) return []
-  const subCategories = categoryStore.getSubCategories(mainCategory.value.id)
-  return subCategories.map(sub => ({
+const allModules = computed(() =>
+  (categoryStore.getSubCategories(parentId.value) || []).map(sub => ({
     id: sub.id,
     moduleTitle: sub.name,
     layoutType: sub.layout_type || 'type1',
-    icon: sub.icon || '',         // <<--- 加这一行
+    icon: sub.icon || '',
     items: sub.comics || []
   }))
+)
+
+const isLoading = computed(() => subPage.value.loading)
+const noMore = computed(() => subPage.value.noMore)
+
+// IntersectionObserver只需要onMounted/onUnmounted挂载
+const sentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+onMounted(() => {
+  observer = new window.IntersectionObserver(async entries => {
+    if (
+      entries[0].isIntersecting &&
+      !isLoading.value &&
+      !noMore.value
+    ) {
+      await categoryStore.loadMoreSubCategories(parentId.value)
+    }
+  })
+  nextTick(() => {
+    if (sentinel.value) observer!.observe(sentinel.value)
+  })
 })
+onUnmounted(() => { observer && observer.disconnect() })
 
-
-// ====== ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-
-// 如果用 useLazyLoad（分页滚动），可以这样写：
-const { visibleList, isLoading, noMore, sentinel } = useLazyLoad(allModules, {
-  batchSize: 2,
-  customScrollRoot: props.scrollContainerRef
-})
-
-function getCurrentFullPath(): string {
-  return window.location.pathname + window.location.search;
+function getCurrentFullPath() {
+  return window.location.pathname + window.location.search
 }
 function saveScrollTop() {
   if (props.scrollContainerRef?.value) {
@@ -107,64 +102,65 @@ function saveScrollTop() {
     sessionStorage.setItem(key, scrollTop.toString())
   }
 }
-
-function goToDetail(item: ComicItem) {
-  saveScrollTop();
-  sessionStorage.setItem('acg-return-from', getCurrentFullPath());
-  sessionStorage.setItem('acg-return-tab', props.activeTab);
-  sessionStorage.setItem('acg-return-sub', props.activeSubCategory);
+function goToDetail(item) {
+  saveScrollTop()
+  // 存“对象”而不是字符串
+  sessionStorage.setItem('acg-return-from', JSON.stringify({
+    name: 'Acg',   // 你的推荐/分类页的路由名，通常就是 'Acg'
+    query: {
+      tab: props.activeTab,
+      sub: props.activeSubCategory
+    }
+    // 你如果详情页是多分类Tab，再加 params
+  }))
+  sessionStorage.setItem('acg-return-tab', props.activeTab)
+  sessionStorage.setItem('acg-return-sub', props.activeSubCategory)
   router.push({
     name: 'ComicDetail',
     params: { id: item.id, source: props.categoryTitle }
-  });
+  })
 }
-function goMore(module: ComicModule) {
-  // 有内容才允许跳转
+
+function goMore(module) {
   if (module.items && module.items.length > 0) {
-    saveScrollTop(); // 保存滚动位置
-    // 存储相关参数到 sessionStorage
-    sessionStorage.setItem('acg-return-from', getCurrentFullPath());
-    sessionStorage.setItem('acg-return-tab', props.activeTab);
-    sessionStorage.setItem('acg-return-sub', props.activeSubCategory);
-    sessionStorage.setItem('moduleTitle', module.moduleTitle);  // 存储模块标题
-    sessionStorage.setItem('subCategoryId', module.id.toString());   // 存储模块ID
-    sessionStorage.setItem(`scroll-pos-${module.moduleTitle}`, props.scrollContainerRef?.value?.scrollTop?.toString() || '0');  // 存储滚动位置
-// 💥 关键：明确标记类型是 comic
-  sessionStorage.setItem('type', 'comic')
-    // 跳转到 AcgMoreListPage 页面，不带 query 参数
-    router.push({
-      name: 'AcgMoreListPage', // 路由名称
-    });
-  } else {
-    console.warn(`模块 ${module.moduleTitle} 没有更多内容或数据为空.`);
+    saveScrollTop()
+    // ⭐ 只在第一次进更多页时记录入口页面和滚动
+    if (!sessionStorage.getItem('more-entry-path')) {
+      sessionStorage.setItem('more-entry-path', getCurrentFullPath())
+      sessionStorage.setItem('more-entry-scroll', props.scrollContainerRef?.value?.scrollTop?.toString() || '0')
+    }
+    sessionStorage.setItem('acg-return-from', getCurrentFullPath())
+    sessionStorage.setItem('acg-return-tab', props.activeTab)
+    sessionStorage.setItem('acg-return-sub', props.activeSubCategory)
+    sessionStorage.setItem('moduleTitle', module.moduleTitle)
+    sessionStorage.setItem('subCategoryId', module.id?.toString() || '')
+    sessionStorage.setItem(`scroll-pos-${module.moduleTitle}`, props.scrollContainerRef?.value?.scrollTop?.toString() || '0')
+    sessionStorage.setItem('type', 'comic')
+    router.push({ name: 'AcgMoreListPage' })
   }
 }
 
+// 滚动恢复
 onActivated(() => {
-  const scrollKey = `acg-scroll-comic-${props.categoryTitle}`;
-  const savedScrollTop = sessionStorage.getItem(scrollKey);
+  const scrollKey = `acg-scroll-comic-${props.categoryTitle}`
+  const savedScrollTop = sessionStorage.getItem(scrollKey)
   if (props.scrollContainerRef?.value && savedScrollTop) {
-    let tryCount = 0;
-    let lastHeight = 0;
+    let tryCount = 0
+    let lastHeight = 0
     function tryRestore() {
-      if (!props.scrollContainerRef?.value) return;
-      const el = props.scrollContainerRef.value;
+      if (!props.scrollContainerRef?.value) return
+      const el = props.scrollContainerRef.value
       if (el.scrollHeight !== lastHeight && el.scrollHeight > 0) {
-        el.scrollTop = parseInt(savedScrollTop, 10);
-        lastHeight = el.scrollHeight;
+        el.scrollTop = parseInt(savedScrollTop, 10)
+        lastHeight = el.scrollHeight
       }
-      tryCount++;
-      if (tryCount < 20) setTimeout(tryRestore, 40);
+      tryCount++
+      if (tryCount < 20) setTimeout(tryRestore, 40)
     }
-    tryRestore();
+    tryRestore()
   }
-});
-onDeactivated(() => {})
-
+})
 </script>
-
-
-
 
 <style scoped>
 .acg-comic-wrapper {

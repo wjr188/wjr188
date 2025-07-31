@@ -25,10 +25,12 @@ export function getNovelChapters(params) {
 export function getNovelChapterDetail(id) {
   return request.get(`api/text_novel_chapter/${id}`)
 }
-// 获取推荐分组及分组下小说（首页推荐模块用）
-export function getNovelRecommendAllWithNovels() {
-  return request.get('api/novel-recommend/group/allWithNovels')
+// 首页推荐分组+小说（支持分页！）
+export function getNovelRecommendAllWithNovels(params = {}) {
+  // params = { page, pageSize }
+  return request.get('api/novel-recommend/group/allWithNovels', { params })
 }
+
 // 获取推荐分组下的所有小说（分页，推荐页“更多”用）
 export function getNovelRecommendGroupNovels(params) {
   // params = { groupId, page, pageSize }

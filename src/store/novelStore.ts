@@ -460,25 +460,45 @@ async searchNovels({ keyword, page = 1, pageSize = 15, categoryId = '' }) {
       }
     },
 
-    async loadNovelRecommendGroups(force = false) {
-      if (this.hasLoadedRecommendNovelGroups && !force) {
-        return this.recommendNovelGroups
-      }
-      this.novelLoading = true
-      try {
-        const res = await getNovelRecommendAllWithNovels()
-        let groups = Array.isArray(res.groups) ? res.groups : []
-        groups = groups.map(group => ({
-          ...group,
-          novels: compatNovelFields(group.novels || [])
-        }))
-        this.recommendNovelGroups = groups
-        this.hasLoadedRecommendNovelGroups = true
-        return groups
-      } finally {
-        this.novelLoading = false
-      }
-    },
+    // 支持分页 & 累加推荐分组
+async loadNovelRecommendGroups({ page = 1, pageSize = 2, force = false } = {}) {
+  // force 强制重置
+  if (force || page === 1) {
+    this.recommendNovelGroups = []
+    this.hasLoadedRecommendNovelGroups = false
+  }
+  this.novelLoading = true
+  try {
+    // 👇注意这里传参
+    const res = await getNovelRecommendAllWithNovels({ page, pageSize })
+    let groups = Array.isArray(res.groups) ? res.groups : []
+    groups = groups.map(group => ({
+      ...group,
+      novels: compatNovelFields(group.novels || [])
+    }))
+    // ★ 累加分组
+    if (page === 1) {
+      this.recommendNovelGroups = groups
+    } else {
+      // 合并新老分组，防止重复
+      const oldIds = new Set(this.recommendNovelGroups.map(g => g.id))
+      this.recommendNovelGroups = [
+        ...this.recommendNovelGroups,
+        ...groups.filter(g => !oldIds.has(g.id))
+      ]
+    }
+    // 判断是否全部加载完
+    const total = res.total || 0
+    this.hasLoadedRecommendNovelGroups = (this.recommendNovelGroups.length >= total)
+    return {
+      groups: this.recommendNovelGroups,
+      total,
+      noMore: this.hasLoadedRecommendNovelGroups
+    }
+  } finally {
+    this.novelLoading = false
+  }
+},
 
     async fetchChapterDetail(chapterId) {
       if (!chapterId) return null

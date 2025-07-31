@@ -2,7 +2,6 @@
   <div class="acg-novel-recommend-wrapper">
     <div class="content-container">
       <div class="quick-entry-bar swiper-no-swiping">
-        <AcgQuickEntryBar />
       </div>
 
       <div
@@ -52,17 +51,15 @@
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
 defineOptions({
   name: 'AcgNovelRecommend'
 })
-import { ref, computed, onMounted, onDeactivated, onActivated, Ref } from 'vue'
+import { ref, computed, onMounted, onDeactivated, onActivated, Ref, nextTick, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import AcgQuickEntryBar from '@/components/AcgQuickEntryBar.vue'
 import AcgSection from '@/components/AcgSection.vue'
 import { useNovelCategoryStore } from '@/store/novelStore'
-import { useLazyLoad } from '@/composables/useLazyLoad'
 
 // 接收 scrollContainerRef 作为 props
 const props = defineProps<{ scrollContainerRef: Ref<HTMLElement | null> }>()
@@ -70,11 +67,45 @@ const props = defineProps<{ scrollContainerRef: Ref<HTMLElement | null> }>()
 const novelStore = useNovelCategoryStore()
 const router = useRouter()
 
+const currentPage = ref(1)
+const pageSize = 2
+const sentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+// 状态派发
+const isLoading = computed(() => novelStore.novelLoading)
+const total = computed(() => novelStore.recommendNovelGroups.length)
+const totalGroups = computed(() => Number(novelStore.recommendNovelGroups?.length || 0))
+const maxTotal = computed(() => Number(novelStore.hasLoadedRecommendNovelGroups ? novelStore.recommendNovelGroups.length : (novelStore.recommendNovelGroups.length + 1)))
+const noMore = computed(() => novelStore.hasLoadedRecommendNovelGroups && !isLoading.value)
+
+function setupObserver() {
+  if (observer) observer.disconnect()
+  observer = new window.IntersectionObserver(async entries => {
+    if (
+      entries[0].isIntersecting &&
+      !novelStore.novelLoading &&
+      !novelStore.hasLoadedRecommendNovelGroups
+    ) {
+      currentPage.value++
+      await novelStore.loadNovelRecommendGroups({ page: currentPage.value, pageSize })
+      await nextTick()
+      if (sentinel.value) observer!.observe(sentinel.value)
+    }
+  })
+  if (sentinel.value) observer.observe(sentinel.value)
+}
+
 onMounted(async () => {
-  await novelStore.loadNovelRecommendGroups()
+  currentPage.value = 1
+  await novelStore.loadNovelRecommendGroups({ page: currentPage.value, pageSize })
+  setupObserver()
+})
+onBeforeUnmount(() => {
+  if (observer) observer.disconnect()
 })
 
-const recommendModules = computed(() => {
+const visibleList = computed(() => {
   return (novelStore.recommendNovelGroups || []).map(group => ({
     id: group.id,
     moduleTitle: group.name,
@@ -83,15 +114,6 @@ const recommendModules = computed(() => {
     items: (group.novels || []).slice(0, 15),
     novelsCount: (group.novels || []).length
   }))
-})
-
-const {
-  visibleList,
-  isLoading,
-  noMore,
-  sentinel,
-} = useLazyLoad(recommendModules, {
-  batchSize: 2,
 })
 
 // 滚动位置保存 & 恢复
@@ -109,22 +131,22 @@ function saveScrollTop() {
 function restoreScrollTop() {
   const el = props.scrollContainerRef?.value;
   const saved = sessionStorage.getItem(scrollKey);
-  
+
   if (el && saved) {
     const targetPos = parseInt(saved);
     if (targetPos > 0 && el.scrollHeight > el.clientHeight) {
-      
+
       const restoreAttempt = (attempt = 0) => {
         if (attempt >= 5) return;
-        
+
         el.scrollTop = targetPos;
         const currentPos = el.scrollTop;
-        
+
         if (Math.abs(currentPos - targetPos) > 2) {
           setTimeout(() => restoreAttempt(attempt + 1), 50 * (attempt + 1));
         }
       };
-      
+
       setTimeout(() => {
         if (el.scrollHeight > el.clientHeight) {
           restoreAttempt();
@@ -137,7 +159,6 @@ function restoreScrollTop() {
 onActivated(() => {
   restoreScrollTop()
 })
-
 onDeactivated(() => {
   saveScrollTop()
 })
@@ -149,11 +170,17 @@ function getCurrentFullPath(): string {
 function emitSaveScroll() {
   saveScrollTop()
 }
-
 function goToDetail(item: any) {
   emitSaveScroll()
-  saveScrollTop();
-  sessionStorage.setItem('acg-return-from', getCurrentFullPath())
+  saveScrollTop()
+  // 👇👇👇 存对象，**不是字符串！**
+  sessionStorage.setItem('acg-return-from', JSON.stringify({
+    name: 'Acg',   // 这里就是你的小说推荐/分类页的路由名，通常就是 Acg
+    query: {
+      tab: '小说',
+      sub: '推荐'   // 这里可以用你真实的 tab/sub 变量
+    }
+  }))
   sessionStorage.setItem('acg-return-tab', '小说')
   sessionStorage.setItem('acg-return-sub', '推荐')
   router.push({
@@ -166,6 +193,13 @@ function goToDetail(item: any) {
 function goMore(module: any) {
   emitSaveScroll();
   saveScrollTop();
+
+  // ⭐ 只在第一次进更多页时记录入口页面和滚动
+  if (!sessionStorage.getItem('more-entry-path')) {
+    sessionStorage.setItem('more-entry-path', getCurrentFullPath())
+    sessionStorage.setItem('more-entry-scroll', props.scrollContainerRef?.value?.scrollTop?.toString() || '0')
+  }
+
   sessionStorage.setItem('acg-return-from', getCurrentFullPath());
   sessionStorage.setItem('acg-return-tab', '小说');
   sessionStorage.setItem('acg-return-sub', module.moduleTitle);
@@ -181,6 +215,7 @@ function goMore(module: any) {
     name: 'AcgMoreListPage',
   });
 }
+
 </script>
 
 <style scoped>

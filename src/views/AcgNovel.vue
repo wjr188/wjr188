@@ -109,7 +109,14 @@ function goToDetail(item: any) {
     const key = `acg-scroll-${props.activeTab}-${props.activeSubCategory}`
     sessionStorage.setItem(key, scrollTop.toString())
   }
-  sessionStorage.setItem('acg-return-from', getCurrentFullPath())  // ← 就加这一行！
+  // 👇这样存就对了！
+  sessionStorage.setItem('acg-return-from', JSON.stringify({
+    name: 'Acg',  // 你的推荐页/分类页的路由名
+    query: {
+      tab: props.activeTab,
+      sub: props.activeSubCategory
+    }
+  }))
   sessionStorage.setItem('acg-return-tab', props.activeTab)
   sessionStorage.setItem('acg-return-sub', props.activeSubCategory)
   router.push({ name: 'NovelDetail', params: { id: item.id } })

@@ -52,30 +52,57 @@
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
-defineOptions({
-  name: 'AcgComicRecommend'
-})
-import { ref, computed, onMounted, onDeactivated, nextTick, onActivated, Ref } from 'vue'
+import { ref, computed, onMounted, onDeactivated, onActivated, nextTick, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import AcgQuickEntryBar from '@/components/AcgQuickEntryBar.vue'
 import AcgSection from '@/components/AcgSection.vue'
 import { useComicCategoryStore } from '@/store/comicCategoryStore'
-import { useLazyLoad } from '@/composables/useLazyLoad'
 
-// 接收 scrollContainerRef 作为 props
-const props = defineProps<{ scrollContainerRef: Ref<HTMLElement | null> }>()
+const props = defineProps<{ scrollContainerRef: any }>()
 
 const comicStore = useComicCategoryStore()
 const router = useRouter()
 
+const currentPage = ref(1)
+const pageSize = 2
+const sentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+const isLoading = computed(() => comicStore.loading)
+const total = computed(() => comicStore.recommendGroupsTotal)
+const noMore = computed(() =>
+  comicStore.allRecommendGroups.length >= comicStore.recommendGroupsTotal && !comicStore.loading
+)
+
+function setupObserver() {
+  if (observer) observer.disconnect()
+  observer = new window.IntersectionObserver(async entries => {
+    if (
+      entries[0].isIntersecting &&
+      !comicStore.loading &&
+      !noMore.value
+    ) {
+      currentPage.value++
+      await comicStore.loadAllRecommendGroupsWithComics({ page: currentPage.value, pageSize })
+      await nextTick()
+      if (sentinel.value) observer!.observe(sentinel.value)
+    }
+  })
+  if (sentinel.value) observer.observe(sentinel.value)
+}
+
 onMounted(async () => {
-  await comicStore.loadAllRecommendGroupsWithComics()
+  currentPage.value = 1
+  await comicStore.loadAllRecommendGroupsWithComics({ page: currentPage.value, pageSize })
+  setupObserver()
+})
+onBeforeUnmount(() => {
+  if (observer) observer.disconnect()
 })
 
-const recommendModules = computed(() => {
-  return comicStore.allRecommendGroups.map(group => ({
+const visibleList = computed(() => {
+  return (comicStore.allRecommendGroups || []).map(group => ({
     id: group.id,
     moduleTitle: group.name,
     layoutType: group.layout_type || 'type1',
@@ -85,75 +112,57 @@ const recommendModules = computed(() => {
   }))
 })
 
-const {
-  visibleList,
-  isLoading,
-  noMore,
-  sentinel,
-} = useLazyLoad(recommendModules, {
-  batchSize: 2,
-  // customScrollRoot: scrollRef, // 如果你的useLazyLoad支持，建议传
-})
-
 // 滚动位置保存 & 恢复
 const scrollKey = 'acg-scroll-comic-recommend'
 function saveScrollTop() {
   const el = props.scrollContainerRef?.value;
   if (el) {
-    const scrollTop = Math.max(0, el.scrollTop); // 确保非负
-    if (scrollTop > 0) { // 只保存有效滚动位置
-      sessionStorage.setItem(scrollKey, scrollTop.toString());
-    }
+    const scrollTop = Math.max(0, el.scrollTop)
+    if (scrollTop > 0) sessionStorage.setItem(scrollKey, scrollTop.toString())
   }
 }
-// 滚动恢复逻辑
 function restoreScrollTop() {
   const el = props.scrollContainerRef?.value;
-  const saved = sessionStorage.getItem(scrollKey);
-  
+  const saved = sessionStorage.getItem(scrollKey)
   if (el && saved) {
-    const targetPos = parseInt(saved);
+    const targetPos = parseInt(saved)
     if (targetPos > 0 && el.scrollHeight > el.clientHeight) {
-      
       const restoreAttempt = (attempt = 0) => {
-        if (attempt >= 5) return; // 最大尝试5次
-        
-        el.scrollTop = targetPos;
-        const currentPos = el.scrollTop;
-        
-        if (Math.abs(currentPos - targetPos) > 2) {
-          setTimeout(() => restoreAttempt(attempt + 1), 50 * (attempt + 1));
+        if (attempt >= 5) return
+        el.scrollTop = targetPos
+        if (Math.abs(el.scrollTop - targetPos) > 2) {
+          setTimeout(() => restoreAttempt(attempt + 1), 50 * (attempt + 1))
         }
-      };
-      
-      // 首次延迟100ms确保内容加载
+      }
       setTimeout(() => {
         if (el.scrollHeight > el.clientHeight) {
-          restoreAttempt();
+          restoreAttempt()
         }
-      }, 100);
+      }, 100)
     }
   }
 }
-onActivated(() => {
-  restoreScrollTop()
-})
+onActivated(restoreScrollTop)
+onDeactivated(saveScrollTop)
 
-onDeactivated(() => {
-  saveScrollTop()
-})
 function getCurrentFullPath(): string {
   return window.location.pathname + window.location.search
 }
 
-function emitSaveScroll() {
-  saveScrollTop()
-}
+function emitSaveScroll() { saveScrollTop() }
 
 function goToDetail(item: any) {
   emitSaveScroll()
-  saveScrollTop(); // 确保在跳转前保存
-  sessionStorage.setItem('acg-return-from', getCurrentFullPath())
+  saveScrollTop()
+  // 推荐页/分类页必须存路由对象（推荐！）
+  sessionStorage.setItem('acg-return-from', JSON.stringify({
+    name: 'Acg', // 你的推荐页/分类页路由名
+    query: {
+      tab: '漫画', // 或 props.activeTab，按你的项目动态传递
+      sub: '推荐', // 或 props.activeSubCategory
+    }
+    // params: {} 如果有路由参数
+  }))
   sessionStorage.setItem('acg-return-tab', '漫画')
   sessionStorage.setItem('acg-return-sub', '推荐')
   router.push({
@@ -163,26 +172,26 @@ function goToDetail(item: any) {
   })
 }
 function goMore(module: any) {
-  emitSaveScroll(); // 保存滚动位置
-  saveScrollTop(); // 确保在跳转前保存
-  // 存储相关参数到 sessionStorage
-  sessionStorage.setItem('acg-return-from', getCurrentFullPath());
-  sessionStorage.setItem('acg-return-tab', '漫画');
-  sessionStorage.setItem('acg-return-sub', module.moduleTitle);
-  sessionStorage.setItem('moduleTitle', module.moduleTitle);  // 存储模块标题
-  sessionStorage.setItem(`scroll-pos-${module.moduleTitle}`, props.scrollContainerRef?.value?.scrollTop?.toString() || '0');  // 存储滚动位置
+  emitSaveScroll()
+  saveScrollTop()
 
-  // 存储 groupId，漫画推荐页只使用 groupId
-  if (module.id) {
-    sessionStorage.setItem('groupId', module.id.toString());  // 存储推荐组ID
-    sessionStorage.removeItem('subCategoryId'); // 清除 subCategoryId
+  // ⭐⭐⭐ 入口记录，只记一次 ⭐⭐⭐
+  if (!sessionStorage.getItem('more-entry-path')) {
+    sessionStorage.setItem('more-entry-path', getCurrentFullPath())
+    sessionStorage.setItem('more-entry-scroll', props.scrollContainerRef?.value?.scrollTop?.toString() || '0')
   }
-// 💥 关键：明确标记类型是 comic
+
+  sessionStorage.setItem('acg-return-from', getCurrentFullPath())
+  sessionStorage.setItem('acg-return-tab', '漫画')
+  sessionStorage.setItem('acg-return-sub', module.moduleTitle)
+  sessionStorage.setItem('moduleTitle', module.moduleTitle)
+  sessionStorage.setItem(`scroll-pos-${module.moduleTitle}`, props.scrollContainerRef?.value?.scrollTop?.toString() || '0')
+  if (module.id) {
+    sessionStorage.setItem('groupId', module.id.toString())
+    sessionStorage.removeItem('subCategoryId')
+  }
   sessionStorage.setItem('type', 'comic')
-  // 跳转到 AcgMoreListPage 页面，不带 query 参数
-  router.push({
-    name: 'AcgMoreListPage', // 路由名称
-  });
+  router.push({ name: 'AcgMoreListPage' })
 }
 
 </script>

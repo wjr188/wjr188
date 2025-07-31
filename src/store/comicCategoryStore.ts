@@ -75,10 +75,17 @@ export interface RecommendGroupComicsPage {
   loading: boolean
   finished: boolean
 }
-
+export interface SubCategoryPage {
+  subCategories: CategoryItem[]
+  total: number
+  page: number
+  pageSize: number
+  loading: boolean
+  noMore: boolean
+}
 export interface CategoryState {
   mainCategories: CategoryItem[]
-  subCategoriesMap: Record<number, CategoryItem[]>
+  subCategoriesMap: Record<number, SubCategoryPage>  // 这里 key 是 parentId
   subCategoryComicsMap: Record<number, SubCategoryComicsPage>
   loading: boolean
   comicDetail: any
@@ -155,18 +162,55 @@ export const useComicCategoryStore = defineStore('comicCategory', {
         this.loading = false
       }
     },
-    async loadSubCategoriesWithComics(parentId: number, limit = 9) {
-      this.loading = true
-      try {
-        const data = await fetchComicCategories({ parentId, limit })
-        this.subCategoriesMap[parentId] = data.subCategories || []
-      } finally {
-        this.loading = false
-      }
-    },
-    getSubCategories(parentId: number): CategoryItem[] {
-      return this.subCategoriesMap[parentId] || []
-    },
+    async loadSubCategoriesWithComics(
+  parentId: number,
+  opt: { limit?: number, page?: number, pageSize?: number, append?: boolean } = {}
+) {
+  const { limit = 9, page = 1, pageSize = 2, append = false } = opt;
+  if (!this.subCategoriesMap[parentId]) {
+    this.subCategoriesMap[parentId] = {
+      subCategories: [],
+      total: 0,
+      page: 0,
+      pageSize,
+      loading: false,
+      noMore: false
+    }
+  }
+  const storeObj = this.subCategoriesMap[parentId]
+  storeObj.loading = true
+  try {
+    // 后端要返回 subCategories + total + page + pageSize
+    const data = await fetchComicCategories({ parentId, limit, page, pageSize })
+    const list = data.subCategories || []
+    storeObj.subCategories = append ? storeObj.subCategories.concat(list) : list
+    storeObj.total = data.total || 0
+    storeObj.page = page
+    storeObj.pageSize = pageSize
+    storeObj.noMore = storeObj.subCategories.length >= storeObj.total
+    return storeObj
+  } finally {
+    storeObj.loading = false
+  }
+},
+async loadMoreSubCategories(parentId: number) {
+  const storeObj = this.subCategoriesMap[parentId]
+  if (!storeObj || storeObj.loading || storeObj.noMore) return storeObj
+  const nextPage = storeObj.page + 1
+  return this.loadSubCategoriesWithComics(parentId, {
+    limit: storeObj.pageSize,
+    page: nextPage,
+    pageSize: storeObj.pageSize,
+    append: true
+  })
+},
+getSubCategories(parentId: number): CategoryItem[] {
+  return this.subCategoriesMap[parentId]?.subCategories || []
+},
+clearSubCategories(parentId: number) {
+  delete this.subCategoriesMap[parentId]
+},
+
     async loadComicDetail(manga_id: number | string) {
       manga_id = Number(manga_id)
       if (this.comicDetailCache[manga_id]) {
@@ -329,23 +373,50 @@ addUnlockedChapter(comicId: number | string, chapterId: number | string) {
     this.unlockedChaptersMap[cid].push(chId)
   }
 },
+/**
+ * 推荐页批量拉取所有推荐分组及分组下漫画（支持分页、累加、loading、noMore）
+ * @param {number} page 页码（默认1）
+ * @param {number} pageSize 每页分组数（默认2或你自己定）
+ * @param {boolean} force 是否强制刷新
+ * @returns 分组列表、总数、是否全部加载完
+ */
+async loadAllRecommendGroupsWithComics({ page = 1, pageSize = 2, force = false } = {}) {
+  // force 或第一页时重置
+  if (force || page === 1) {
+    this.allRecommendGroups = []
+    this.recommendGroupsTotal = 0
+  }
+  this.loading = true
+  try {
+    // 支持传分页参数给接口
+    const res = await fetchAllRecommendGroupsWithComics({ page, pageSize })
+    let groups = Array.isArray(res.groups) ? res.groups : []
+    // ★ 累加分组
+    if (page === 1) {
+      this.allRecommendGroups = groups
+    } else {
+      // 合并新老分组，防止重复
+      const oldIds = new Set(this.allRecommendGroups.map(g => g.id))
+      this.allRecommendGroups = [
+        ...this.allRecommendGroups,
+        ...groups.filter(g => !oldIds.has(g.id))
+      ]
+    }
+    // 记录总数
+    const total = res.total || 0
+    this.recommendGroupsTotal = total
+    // 判断是否全部加载完
+    const noMore = (this.allRecommendGroups.length >= total)
+    return {
+      groups: this.allRecommendGroups,
+      total,
+      noMore
+    }
+  } finally {
+    this.loading = false
+  }
+},
 
-    /**
-     * 推荐页一次性批量拉取所有推荐分组及分组下漫画
-     */
-    async loadAllRecommendGroupsWithComics(force = false) {
-      if (!force && this.allRecommendGroups.length > 0) {
-        return this.allRecommendGroups
-      }
-      this.loading = true
-      try {
-        const res = await fetchAllRecommendGroupsWithComics()
-        this.allRecommendGroups = res.groups || []
-        return this.allRecommendGroups
-      } finally {
-        this.loading = false
-      }
-    },
     /**
      * 分页拉取子分类下的漫画（“更多”页专用）
      * @param subCategoryId 子分类id

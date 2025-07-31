@@ -2,15 +2,26 @@ import request from '@/utils/request'
 
 /**
  * 获取分类列表
- * 会返回：{ mainCategories: [], subCategories: [] }
+ * - parentId: 主分类ID，返回该主分类下的子分类（分页），每组子分类下挂 limit 本漫画
+ * - page, pageSize: 子分类分页参数
+ * - limit: 每组子分类下的漫画数
+ * 返回 { subCategories: [], total: number, page: number, pageSize: number }
  */
 export function fetchComicCategories(params?: {
   keyword?: string;
   parentId?: number;
   status?: number;
   onlyMain?: number;
-  limit?: number;
-}): Promise<{ mainCategories: any[]; subCategories: any[] }> {
+  limit?: number;      // 每组子分类下多少本漫画
+  page?: number;       // 子分类分页参数
+  pageSize?: number;   // 子分类分页参数
+}): Promise<{
+  mainCategories?: any[];
+  subCategories?: any[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+}> {
   return request.get('/api/comic/category/list', { params });
 }
 
@@ -196,9 +207,10 @@ export function fetchChildRecommendCategories(): Promise<{ list: any[] }> {
 /**
  * 获取所有推荐分组及分组下全部漫画（推荐页高效一次拉取专用）
  */
-export function fetchAllRecommendGroupsWithComics(): Promise<{ groups: any[] }> {
-  return request.get('/api/comic-recommend/group/allWithComics');
+export function fetchAllRecommendGroupsWithComics(params?: { page?: number; pageSize?: number }): Promise<{ groups: any[]; total: number }> {
+  return request.get('/api/comic-recommend/group/allWithComics', { params });
 }
+
 /**
  * 分页拉取某个子分类下的漫画（用于“更多”页、子分类下的全部列表分页展示）
  * @param params 传 subCategoryId、page、pageSize，建议 pageSize 默认 15

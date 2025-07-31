@@ -619,10 +619,10 @@ function handleGuessCardClick(item: any) {
 function goBack() {
   const returnFrom = sessionStorage.getItem('acg-return-from')
   const scrollTop = sessionStorage.getItem('acg-scroll-top')
-  if (returnFrom) {
-    let returnToRoute = returnFrom
-    try { returnToRoute = JSON.parse(returnFrom) } catch (e) {}
-    router.replace(returnToRoute).then(() => {
+
+  // ✅ 优先检查是否从 AcgMoreListPage 跳转过来
+  if (returnFrom && returnFrom.includes('AcgMoreListPage')) {
+    router.replace({ name: 'AcgMoreListPage' }).then(() => {
       nextTick(() => {
         requestAnimationFrame(() => {
           window.scrollTo(0, parseInt(scrollTop || '0', 10))
@@ -633,6 +633,27 @@ function goBack() {
     sessionStorage.removeItem('acg-scroll-top')
     return
   }
+
+  // 其他 acg-return-from（如推荐页），也走同样逻辑
+  if (returnFrom) {
+    try {
+      const returnToRoute = JSON.parse(returnFrom)
+      router.replace(returnToRoute).then(() => {
+        nextTick(() => {
+          requestAnimationFrame(() => {
+            window.scrollTo(0, parseInt(scrollTop || '0', 10))
+          })
+        })
+      })
+      sessionStorage.removeItem('acg-return-from')
+      sessionStorage.removeItem('acg-scroll-top')
+      return
+    } catch (e) {
+      console.error('解析返回路由失败', e)
+    }
+  }
+
+  // 搜索页返回（你原来的逻辑）
   if (sessionStorage.getItem('search-main-is-return')) {
     const activeTab = sessionStorage.getItem('search-main-return-tab')
     const currentTab = sessionStorage.getItem('search-main-return-type')
@@ -648,9 +669,9 @@ function goBack() {
     sessionStorage.removeItem('search-main-is-return')
     return
   }
+
   router.back()
 }
-
 // 其它按钮
 function formatW(num: number) {
   if (!num || isNaN(num)) return '0.0w'

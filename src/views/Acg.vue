@@ -47,7 +47,7 @@
     <NoticeBar />
     <component
       :is="getComponent(name)"
-      v-bind="getComponentProps(name, idx)"  
+      v-bind="getComponentProps(name, idx)" 
     />
   </div>
 </SwiperSlide>
